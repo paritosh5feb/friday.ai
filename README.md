@@ -25,7 +25,7 @@ Each project is automatically initialized with 8 lifecycle stages:
 
 ## Tech Stack
 
-- **Backend:** FastAPI, SQLAlchemy, SQLite, JWT authentication, bcrypt password hashing
+- **Backend:** FastAPI, SQLAlchemy, SQLite, JWT authentication, secure passlib password hashing
 - **Frontend:** React + TypeScript + Vite
 - **Auth:** Signup/Login + token-based session handling
 - **Storage:** Local SQLite database (`backend/friday_ai.db`)

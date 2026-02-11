@@ -7,7 +7,9 @@ from passlib.context import CryptContext
 from .config import settings
 
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# pbkdf2_sha256 avoids external bcrypt binary compatibility issues while
+# still providing strong password hashing defaults for this project.
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 def hash_password(password: str) -> str:
