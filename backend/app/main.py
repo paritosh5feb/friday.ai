@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, text
+from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session, selectinload
 
 from .config import settings
@@ -57,6 +57,18 @@ from .security import create_access_token, hash_password, verify_password
 
 
 Base.metadata.create_all(bind=engine)
+
+
+def run_lightweight_migrations() -> None:
+    inspector = inspect(engine)
+    if inspector.has_table("projects"):
+        project_columns = {column["name"] for column in inspector.get_columns("projects")}
+        if "description" not in project_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN description TEXT NOT NULL DEFAULT ''"))
+
+
+run_lightweight_migrations()
 
 app = FastAPI(title=settings.app_name)
 
