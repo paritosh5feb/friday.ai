@@ -1,40 +1,84 @@
-# Friday.ai
+# Friday.ai - AI Project Lifecycle Platform
 
-Friday.ai is an AI project management platform built around a practical research-to-report lifecycle.
-It helps teams plan, execute, evaluate, and document AI experiments with a structured workflow from
-problem discovery to LaTeX-ready final reporting.
-
-The backend expands the partially implemented logic from
-[`paritosh5feb/friday.com`](https://github.com/paritosh5feb/friday.com), especially the
-project -> experiment -> run -> run params/metrics tracking flow.
-
-## Core Lifecycle Built into the Product
-
-Each project is automatically initialized with 8 lifecycle stages:
-
-1. **Problem statement research**
-   - Literature review loop (review -> proposal -> update)
-   - Open problem statement tracking
-2. **Establish baseline experiments (SEH validation)**
-3. **Reproduce current solutions**
-4. **Run smallest partial experiment**
-5. **Benchmark evaluations**
-6. **Create result tables for stages 4 and 5**
-7. **Scale experiments after quality checks**
-8. **Final evaluation, collation, discussion, and LaTeX report preparation**
-
-## Architecture
+<div align="center">
 
 ![Friday.ai Architecture](docs/architecture.svg)
 
-## Tech Stack
+**A full-stack platform to plan, run, track, and report AI research projects end-to-end.**
 
-- **Backend:** FastAPI, SQLAlchemy, SQLite, JWT authentication, secure passlib password hashing
-- **Frontend:** React + TypeScript + Vite
-- **Auth:** Signup/Login + token-based session handling
-- **Storage:** Local SQLite database (`backend/friday_ai.db`)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.128-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-## Repository Structure
+</div>
+
+---
+
+## Overview
+
+Friday.ai is built around a practical AI project lifecycle:
+
+1. Problem statement research (review -> proposal -> update cycle)
+2. Baseline experiment to validate hypothesis (SEH)
+3. Reproduce current solutions
+4. Run smallest partial experiments
+5. Run benchmark evaluations
+6. Create result tables from steps 4 and 5
+7. Scale successful experiments
+8. Final evaluation, collation, discussion, and LaTeX-ready reporting
+
+This repository currently contains:
+- A FastAPI backend with authentication, lifecycle management, experiment tracking, and run logging
+- A React + TypeScript frontend with login/signup and a lifecycle dashboard
+- Documentation + architecture diagram
+
+The backend also **expands the original partial backend** from
+[`paritosh5feb/friday.com`](https://github.com/paritosh5feb/friday.com),
+including project -> experiment -> run -> run-params/run-metrics tracking.
+
+---
+
+## Key Features
+
+### Authentication
+- Signup / Login with JWT
+- Protected APIs with bearer token auth
+- `/api/auth/me` profile endpoint
+
+### Lifecycle-aware Project Management
+- Create projects
+- Auto-initialize lifecycle stages for each project
+- Update stage status and notes (`pending`, `in_progress`, `completed`, `blocked`)
+- Lifecycle summary endpoint for scale/final-eval readiness checks
+
+### Experiment + Run Tracking (Expanded from `friday.com`)
+- Experiment CRUD per project
+- Run creation and status transitions (`queued`, `running`, `completed`, `failed`)
+- Per-run parameter logging
+- Step-wise run metric logging
+- Run detail endpoint with params + metrics for reproducibility
+
+### Evaluation + Reporting
+- Benchmark logging
+- Result table storage (markdown)
+- Final report entries with discussion/evaluation and LaTeX snippet fields
+
+---
+
+## Architecture
+
+### High-level components
+- **Frontend (React + TS):** auth screens + project lifecycle dashboard
+- **Backend (FastAPI):** auth, projects, lifecycle, experiments, runs, benchmarks, tables, reports
+- **Database (SQLite):** persistent storage through SQLAlchemy models
+
+### Data flow
+`React UI -> REST API -> FastAPI services -> SQLAlchemy ORM -> SQLite`
+
+---
+
+## Project Structure
 
 ```text
 .
@@ -61,40 +105,15 @@ Each project is automatically initialized with 8 lifecycle stages:
     └── architecture.svg
 ```
 
-## Features Implemented
+---
 
-### Authentication
+## Getting Started
 
-- User signup
-- User login
-- Current user endpoint (`/api/auth/me`)
-- JWT-protected project and experiment APIs
+### Prerequisites
+- Python 3.11+ (3.12 recommended)
+- Node.js 18+
 
-### Lifecycle-Aware Project Management
-
-- Create and list projects
-- Auto-generate all lifecycle stages when a new project is created
-- Update stage status (`pending`, `in_progress`, `completed`, `blocked`) and notes
-
-### Experiment and Evaluation Tracking
-
-- Create/list/delete experiments with:
-  - kind (`baseline`, `reproduction`, `partial`, `benchmark`, `scaled`, `final`)
-  - setup notes, hypothesis, result summary
-  - metric name and value
-- Track repeated experiment runs with:
-  - run status transitions (`queued` -> `running` -> `completed/failed`)
-  - per-run parameters
-  - step-wise metrics
-  - run detail views for reproducibility
-- Create/list benchmark records linked to projects (optionally to experiments)
-- Create/list markdown result tables
-- Create/list final reports with:
-  - discussion
-  - evaluation summary
-  - LaTeX snippet
-
-## Backend Setup
+### Backend
 
 ```bash
 cd backend
@@ -104,21 +123,55 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-Backend runs at: `http://localhost:8000`
+Backend URL: `http://localhost:8000`
 
-### Useful API Paths
+### Frontend
 
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend URL: `http://localhost:5173`
+
+Set API URL if needed:
+
+```bash
+echo "VITE_API_BASE_URL=http://localhost:8000/api" > frontend/.env
+```
+
+---
+
+## API Reference (Implemented)
+
+### Health / utility
+- `GET /`
+- `GET /health`
+- `GET /db-check`
+
+### Auth
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
-- `GET /db-check`
-- `GET/POST /api/projects`
-- `GET /api/projects/paginated?limit=10&offset=0`
+
+### Projects + lifecycle
+- `POST /api/projects`
+- `GET /api/projects`
+- `GET /api/projects/paginated`
 - `GET /api/projects/{project_id}`
-- `GET /api/projects/{project_id}/lifecycle-summary`
+- `PATCH /api/projects/{project_id}`
+- `GET /api/projects/{project_id}/stages`
 - `PATCH /api/stages/{stage_id}`
-- `GET/POST /api/projects/{project_id}/experiments`
+- `GET /api/projects/{project_id}/lifecycle-summary`
+
+### Experiments
+- `GET /api/projects/{project_id}/experiments`
+- `POST /api/projects/{project_id}/experiments`
+- `PATCH /api/experiments/{experiment_id}`
 - `DELETE /api/experiments/{experiment_id}`
+
+### Runs (expanded from friday.com logic)
 - `GET /api/projects/{project_id}/runs`
 - `POST /api/runs`
 - `PATCH /api/runs/{run_id}/start`
@@ -127,39 +180,20 @@ Backend runs at: `http://localhost:8000`
 - `POST /api/runs/{run_id}/metrics`
 - `GET /api/runs/{run_id}/metrics`
 - `GET /api/runs/{run_id}`
-- `GET/POST /api/projects/{project_id}/benchmarks`
-- `GET/POST /api/projects/{project_id}/tables`
-- `GET/POST /api/projects/{project_id}/reports`
 
-## Frontend Setup
+### Benchmarks / Tables / Reports
+- `GET /api/projects/{project_id}/benchmarks`
+- `POST /api/projects/{project_id}/benchmarks`
+- `GET /api/projects/{project_id}/tables`
+- `POST /api/projects/{project_id}/tables`
+- `GET /api/projects/{project_id}/reports`
+- `POST /api/projects/{project_id}/reports`
+- `PATCH /api/reports/{report_id}`
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+---
 
-Frontend runs at: `http://localhost:5173`
+## Notes
 
-If needed, set custom API URL:
-
-```bash
-echo "VITE_API_BASE_URL=http://localhost:8000/api" > .env
-```
-
-## How the Product Supports Your AI Workflow
-
-- **Research loop** is represented in stage 1 notes and status progression.
-- **Baseline, reproduction, and smallest experiments** are logged using experiment kinds.
-- **Repeated run tracking** captures the "run experiments multiple times and track them all" objective.
-- **Benchmark evaluations** have their own structured records for metric comparison.
-- **Table generation** supports markdown-based result tables for stage 6.
-- **Scale-up decisions and final discussions** are captured in late-stage notes and reports.
-- **LaTeX report creation** is supported by dedicated report fields for raw LaTeX snippets.
-
-## Next Enhancements (Optional)
-
-- File uploads for paper PDFs and dataset artifacts
-- Auto-generated charts from benchmark tables
-- Team roles and collaboration comments
-- Export full project as PDF/LaTeX bundle
+- Password hashing uses `passlib` with `pbkdf2_sha256`.
+- A lightweight startup migration is included for legacy local DBs (adds `projects.description` when missing).
+- Frontend is intentionally simple and functional, focused on lifecycle execution workflow.
