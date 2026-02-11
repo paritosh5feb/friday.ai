@@ -1,12 +1,26 @@
+from datetime import datetime
+
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session, selectinload
 
 from .config import settings
 from .database import Base, engine, get_db
 from .dependencies import get_current_user
 from .lifecycle import LIFECYCLE_TEMPLATE, LIFECYCLE_STATUSES
-from .models import Benchmark, Experiment, FinalReport, LifecycleStage, Project, ResultTable, User
+from .models import (
+    Benchmark,
+    Experiment,
+    FinalReport,
+    LifecycleStage,
+    Project,
+    ResultTable,
+    Run,
+    RunMetric,
+    RunParam,
+    User,
+)
 from .schemas import (
     BenchmarkCreate,
     BenchmarkRead,
@@ -20,10 +34,20 @@ from .schemas import (
     LifecycleStageUpdate,
     ProjectCreate,
     ProjectDetail,
+    ProjectLifecycleSummary,
+    ProjectListResponse,
     ProjectRead,
     ProjectUpdate,
     ResultTableCreate,
     ResultTableRead,
+    RunCreate,
+    RunDetailRead,
+    RunFinish,
+    RunMetricCreate,
+    RunMetricRead,
+    RunParamCreate,
+    RunParamRead,
+    RunRead,
     Token,
     UserCreate,
     UserLogin,
@@ -51,7 +75,7 @@ def get_owned_project_or_404(db: Session, user: User, project_id: int) -> Projec
         .filter(Project.id == project_id, Project.owner_id == user.id)
         .options(
             selectinload(Project.lifecycle_stages),
-            selectinload(Project.experiments),
+            selectinload(Project.experiments).selectinload(Experiment.runs),
             selectinload(Project.benchmarks),
             selectinload(Project.result_tables),
             selectinload(Project.final_reports),
@@ -63,9 +87,48 @@ def get_owned_project_or_404(db: Session, user: User, project_id: int) -> Projec
     return project
 
 
+def get_owned_experiment_or_404(db: Session, user: User, experiment_id: int) -> Experiment:
+    experiment = (
+        db.query(Experiment)
+        .join(Project, Project.id == Experiment.project_id)
+        .filter(Experiment.id == experiment_id, Project.owner_id == user.id)
+        .options(selectinload(Experiment.runs))
+        .first()
+    )
+    if not experiment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found")
+    return experiment
+
+
+def get_owned_run_or_404(db: Session, user: User, run_id: int) -> Run:
+    run = (
+        db.query(Run)
+        .join(Experiment, Experiment.id == Run.experiment_id)
+        .join(Project, Project.id == Experiment.project_id)
+        .filter(Run.id == run_id, Project.owner_id == user.id)
+        .options(selectinload(Run.params), selectinload(Run.metrics))
+        .first()
+    )
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    return run
+
+
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    # Preserved for compatibility with the friday.com backend style.
+    return {"creator": "Paritosh", "service": settings.app_name}
+
+
+@app.get("/db-check")
+def db_check(db: Session = Depends(get_db)) -> dict[str, str]:
+    db.execute(text("SELECT 1"))
+    return {"db": "connected"}
 
 
 @app.post(f"{settings.api_prefix}/auth/signup", response_model=Token, status_code=status.HTTP_201_CREATED)
@@ -106,11 +169,14 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ProjectDetail:
+    objective = payload.objective or payload.description or "Objective to be refined through literature review."
+    hypothesis = payload.hypothesis or "Hypothesis to validate during baseline and reproduction experiments."
     project = Project(
         owner_id=current_user.id,
         name=payload.name,
-        objective=payload.objective,
-        hypothesis=payload.hypothesis,
+        description=payload.description or "",
+        objective=objective,
+        hypothesis=hypothesis,
     )
     db.add(project)
     db.flush()
@@ -142,6 +208,25 @@ def list_projects(
     )
 
 
+@app.get(f"{settings.api_prefix}/projects/paginated", response_model=ProjectListResponse)
+def list_projects_paginated(
+    limit: int = 10,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProjectListResponse:
+    total = db.query(func.count(Project.id)).filter(Project.owner_id == current_user.id).scalar() or 0
+    projects = (
+        db.query(Project)
+        .filter(Project.owner_id == current_user.id)
+        .order_by(Project.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    return ProjectListResponse(items=projects, total=total)
+
+
 @app.get(f"{settings.api_prefix}/projects/{{project_id}}", response_model=ProjectDetail)
 def get_project(
     project_id: int,
@@ -162,6 +247,8 @@ def update_project(
 
     if payload.name is not None:
         project.name = payload.name
+    if payload.description is not None:
+        project.description = payload.description
     if payload.objective is not None:
         project.objective = payload.objective
     if payload.hypothesis is not None:
@@ -235,7 +322,17 @@ def create_experiment(
     current_user: User = Depends(get_current_user),
 ) -> ExperimentRead:
     get_owned_project_or_404(db=db, user=current_user, project_id=project_id)
-    experiment = Experiment(project_id=project_id, **payload.model_dump())
+    experiment = Experiment(
+        project_id=project_id,
+        kind=payload.kind,
+        title=payload.title or "",
+        hypothesis=payload.hypothesis,
+        setup_notes=payload.setup_notes,
+        result_summary=payload.result_summary,
+        metric_name=payload.metric_name,
+        metric_value=payload.metric_value,
+        status=payload.status,
+    )
     db.add(experiment)
     db.commit()
     db.refresh(experiment)
@@ -283,6 +380,126 @@ def delete_experiment(
     db.delete(experiment)
     db.commit()
     return None
+
+
+@app.get(f"{settings.api_prefix}/projects/{{project_id}}/runs", response_model=list[RunRead])
+def list_project_runs(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[RunRead]:
+    get_owned_project_or_404(db=db, user=current_user, project_id=project_id)
+    return (
+        db.query(Run)
+        .join(Experiment, Experiment.id == Run.experiment_id)
+        .filter(Experiment.project_id == project_id)
+        .order_by(Run.started_at.desc())
+        .all()
+    )
+
+
+@app.post(f"{settings.api_prefix}/runs", response_model=RunRead, status_code=status.HTTP_201_CREATED)
+def create_run(
+    payload: RunCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RunRead:
+    experiment = get_owned_experiment_or_404(db=db, user=current_user, experiment_id=payload.experiment_id)
+
+    run = Run(experiment_id=experiment.id, status=payload.status)
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+@app.patch(f"{settings.api_prefix}/runs/{{run_id}}/start", response_model=RunRead)
+def start_run(
+    run_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RunRead:
+    run = get_owned_run_or_404(db=db, user=current_user, run_id=run_id)
+    if run.status in {"completed", "failed"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Run already finalized")
+
+    run.status = "running"
+    run.started_at = datetime.utcnow()
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+@app.patch(f"{settings.api_prefix}/runs/{{run_id}}/finish", response_model=RunRead)
+def finish_run(
+    run_id: int,
+    payload: RunFinish,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RunRead:
+    run = get_owned_run_or_404(db=db, user=current_user, run_id=run_id)
+    run.status = payload.status
+    run.finished_at = datetime.utcnow()
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+@app.post(f"{settings.api_prefix}/runs/{{run_id}}/params", response_model=list[RunParamRead])
+def log_run_params(
+    run_id: int,
+    params: list[RunParamCreate],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[RunParamRead]:
+    run = get_owned_run_or_404(db=db, user=current_user, run_id=run_id)
+    param_objects = [RunParam(run_id=run.id, key=param.key, value=param.value) for param in params]
+    db.add_all(param_objects)
+    db.commit()
+    for param in param_objects:
+        db.refresh(param)
+    return param_objects
+
+
+@app.post(f"{settings.api_prefix}/runs/{{run_id}}/metrics", response_model=RunMetricRead)
+def log_run_metric(
+    run_id: int,
+    metric: RunMetricCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RunMetricRead:
+    run = get_owned_run_or_404(db=db, user=current_user, run_id=run_id)
+    metric_obj = RunMetric(run_id=run.id, key=metric.key, value=metric.value, step=metric.step)
+    db.add(metric_obj)
+    db.commit()
+    db.refresh(metric_obj)
+    return metric_obj
+
+
+@app.get(f"{settings.api_prefix}/runs/{{run_id}}/metrics", response_model=list[RunMetricRead])
+def get_run_metrics(
+    run_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[RunMetricRead]:
+    run = get_owned_run_or_404(db=db, user=current_user, run_id=run_id)
+    return (
+        db.query(RunMetric)
+        .filter(RunMetric.run_id == run.id)
+        .order_by(RunMetric.step.asc(), RunMetric.timestamp.asc())
+        .all()
+    )
+
+
+@app.get(f"{settings.api_prefix}/runs/{{run_id}}", response_model=RunDetailRead)
+def get_run_detail(
+    run_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RunDetailRead:
+    run = get_owned_run_or_404(db=db, user=current_user, run_id=run_id)
+    run.metrics = sorted(run.metrics, key=lambda item: (item.step, item.timestamp))
+    return run
 
 
 @app.get(f"{settings.api_prefix}/projects/{{project_id}}/benchmarks", response_model=list[BenchmarkRead])
@@ -419,3 +636,42 @@ def update_report(
     db.commit()
     db.refresh(report)
     return report
+
+
+@app.get(
+    f"{settings.api_prefix}/projects/{{project_id}}/lifecycle-summary",
+    response_model=ProjectLifecycleSummary,
+)
+def get_project_lifecycle_summary(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProjectLifecycleSummary:
+    project = get_owned_project_or_404(db=db, user=current_user, project_id=project_id)
+
+    stage_status_counts = {status_value: 0 for status_value in LIFECYCLE_STATUSES}
+    for stage in project.lifecycle_stages:
+        stage_status_counts[stage.status] = stage_status_counts.get(stage.status, 0) + 1
+
+    experiment_counts_by_kind: dict[str, int] = {}
+    run_status_counts: dict[str, int] = {"queued": 0, "running": 0, "completed": 0, "failed": 0}
+    for experiment in project.experiments:
+        experiment_counts_by_kind[experiment.kind] = experiment_counts_by_kind.get(experiment.kind, 0) + 1
+        for run in experiment.runs:
+            run_status_counts[run.status] = run_status_counts.get(run.status, 0) + 1
+
+    completed_stage_numbers = {stage.stage_number for stage in project.lifecycle_stages if stage.status == "completed"}
+    ready_to_scale = {1, 2, 3, 4, 5, 6}.issubset(completed_stage_numbers) and bool(project.result_tables)
+    ready_for_final_evaluation = ready_to_scale and 7 in completed_stage_numbers
+
+    return ProjectLifecycleSummary(
+        project_id=project.id,
+        stage_status_counts=stage_status_counts,
+        experiment_counts_by_kind=experiment_counts_by_kind,
+        run_status_counts=run_status_counts,
+        benchmarks_logged=len(project.benchmarks),
+        result_tables_created=len(project.result_tables),
+        final_reports_created=len(project.final_reports),
+        ready_to_scale=ready_to_scale,
+        ready_for_final_evaluation=ready_for_final_evaluation,
+    )

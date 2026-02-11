@@ -24,6 +24,7 @@ class Project(Base):
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
+    description = Column(Text, default="", nullable=False)
     objective = Column(Text, nullable=False)
     hypothesis = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -75,6 +76,45 @@ class Experiment(Base):
 
     project = relationship("Project", back_populates="experiments")
     benchmarks = relationship("Benchmark", back_populates="experiment")
+    runs = relationship("Run", back_populates="experiment", cascade="all, delete-orphan")
+
+
+class Run(Base):
+    __tablename__ = "runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    experiment_id = Column(Integer, ForeignKey("experiments.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(50), default="queued", nullable=False, index=True)
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    finished_at = Column(DateTime, nullable=True)
+
+    experiment = relationship("Experiment", back_populates="runs")
+    params = relationship("RunParam", back_populates="run", cascade="all, delete-orphan")
+    metrics = relationship("RunMetric", back_populates="run", cascade="all, delete-orphan")
+
+
+class RunParam(Base):
+    __tablename__ = "run_params"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    key = Column(String(255), nullable=False)
+    value = Column(String(1024), nullable=False)
+
+    run = relationship("Run", back_populates="params")
+
+
+class RunMetric(Base):
+    __tablename__ = "run_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    key = Column(String(255), nullable=False)
+    value = Column(Float, nullable=False)
+    step = Column(Integer, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    run = relationship("Run", back_populates="metrics")
 
 
 class Benchmark(Base):

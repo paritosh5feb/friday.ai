@@ -4,6 +4,10 @@ Friday.ai is an AI project management platform built around a practical research
 It helps teams plan, execute, evaluate, and document AI experiments with a structured workflow from
 problem discovery to LaTeX-ready final reporting.
 
+The backend expands the partially implemented logic from
+[`paritosh5feb/friday.com`](https://github.com/paritosh5feb/friday.com), especially the
+project -> experiment -> run -> run params/metrics tracking flow.
+
 ## Core Lifecycle Built into the Product
 
 Each project is automatically initialized with 8 lifecycle stages:
@@ -78,6 +82,11 @@ Each project is automatically initialized with 8 lifecycle stages:
   - kind (`baseline`, `reproduction`, `partial`, `benchmark`, `scaled`, `final`)
   - setup notes, hypothesis, result summary
   - metric name and value
+- Track repeated experiment runs with:
+  - run status transitions (`queued` -> `running` -> `completed/failed`)
+  - per-run parameters
+  - step-wise metrics
+  - run detail views for reproducibility
 - Create/list benchmark records linked to projects (optionally to experiments)
 - Create/list markdown result tables
 - Create/list final reports with:
@@ -89,7 +98,7 @@ Each project is automatically initialized with 8 lifecycle stages:
 
 ```bash
 cd backend
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
@@ -102,11 +111,22 @@ Backend runs at: `http://localhost:8000`
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
+- `GET /db-check`
 - `GET/POST /api/projects`
+- `GET /api/projects/paginated?limit=10&offset=0`
 - `GET /api/projects/{project_id}`
+- `GET /api/projects/{project_id}/lifecycle-summary`
 - `PATCH /api/stages/{stage_id}`
 - `GET/POST /api/projects/{project_id}/experiments`
 - `DELETE /api/experiments/{experiment_id}`
+- `GET /api/projects/{project_id}/runs`
+- `POST /api/runs`
+- `PATCH /api/runs/{run_id}/start`
+- `PATCH /api/runs/{run_id}/finish`
+- `POST /api/runs/{run_id}/params`
+- `POST /api/runs/{run_id}/metrics`
+- `GET /api/runs/{run_id}/metrics`
+- `GET /api/runs/{run_id}`
 - `GET/POST /api/projects/{project_id}/benchmarks`
 - `GET/POST /api/projects/{project_id}/tables`
 - `GET/POST /api/projects/{project_id}/reports`
@@ -131,6 +151,7 @@ echo "VITE_API_BASE_URL=http://localhost:8000/api" > .env
 
 - **Research loop** is represented in stage 1 notes and status progression.
 - **Baseline, reproduction, and smallest experiments** are logged using experiment kinds.
+- **Repeated run tracking** captures the "run experiments multiple times and track them all" objective.
 - **Benchmark evaluations** have their own structured records for metric comparison.
 - **Table generation** supports markdown-based result tables for stage 6.
 - **Scale-up decisions and final discussions** are captured in late-stage notes and reports.
