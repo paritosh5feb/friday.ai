@@ -30,7 +30,7 @@ Friday.ai is built around a practical AI project lifecycle:
 
 This repository currently contains:
 - A FastAPI backend with authentication, lifecycle management, experiment tracking, and run logging
-- A React + TypeScript frontend with login/signup and a lifecycle dashboard
+- A React + TypeScript frontend with login/signup, lifecycle dashboard, and team execution panels
 - Documentation + architecture diagram
 
 The backend also **expands the original partial backend** from
@@ -52,12 +52,20 @@ including project -> experiment -> run -> run-params/run-metrics tracking.
 - Update stage status and notes (`pending`, `in_progress`, `completed`, `blocked`)
 - Lifecycle summary endpoint for scale/final-eval readiness checks
 
+### Agile Collaboration (Jira/Confluence Principles)
+- Multi-user projects with project membership
+- Role-based access (`admin`, `manager`, `researcher`, `reviewer`, `viewer`)
+- Scope-controlled permissions (manage members/lifecycle/experiments/runs/tasks/pages)
+- Kanban task tracking (`backlog`, `todo`, `in_progress`, `in_review`, `done`)
+- Confluence-style project pages with ownership and update metadata
+
 ### Experiment + Run Tracking (Expanded from `friday.com`)
 - Experiment CRUD per project
 - Run creation and status transitions (`queued`, `running`, `completed`, `failed`)
 - Per-run parameter logging
 - Step-wise run metric logging
 - Run detail endpoint with params + metrics for reproducibility
+- Run-comparison endpoint for metric-focused analysis (W&B-style)
 
 ### Evaluation + Reporting
 - Benchmark logging
@@ -161,6 +169,10 @@ echo "VITE_API_BASE_URL=http://localhost:8000/api" > frontend/.env
 - `GET /api/projects/paginated`
 - `GET /api/projects/{project_id}`
 - `PATCH /api/projects/{project_id}`
+- `GET /api/projects/{project_id}/members`
+- `POST /api/projects/{project_id}/members`
+- `PATCH /api/projects/{project_id}/members/{member_id}`
+- `DELETE /api/projects/{project_id}/members/{member_id}`
 - `GET /api/projects/{project_id}/stages`
 - `PATCH /api/stages/{stage_id}`
 - `GET /api/projects/{project_id}/lifecycle-summary`
@@ -173,6 +185,7 @@ echo "VITE_API_BASE_URL=http://localhost:8000/api" > frontend/.env
 
 ### Runs (expanded from friday.com logic)
 - `GET /api/projects/{project_id}/runs`
+- `GET /api/projects/{project_id}/run-comparison?metric_key=accuracy`
 - `POST /api/runs`
 - `PATCH /api/runs/{run_id}/start`
 - `PATCH /api/runs/{run_id}/finish`
@@ -180,6 +193,18 @@ echo "VITE_API_BASE_URL=http://localhost:8000/api" > frontend/.env
 - `POST /api/runs/{run_id}/metrics`
 - `GET /api/runs/{run_id}/metrics`
 - `GET /api/runs/{run_id}`
+
+### Kanban tasks + pages
+- `GET /api/projects/{project_id}/tasks`
+- `POST /api/projects/{project_id}/tasks`
+- `PATCH /api/tasks/{task_id}`
+- `DELETE /api/tasks/{task_id}`
+- `GET /api/projects/{project_id}/kanban`
+- `GET /api/projects/{project_id}/pages`
+- `POST /api/projects/{project_id}/pages`
+- `GET /api/pages/{page_id}`
+- `PATCH /api/pages/{page_id}`
+- `DELETE /api/pages/{page_id}`
 
 ### Benchmarks / Tables / Reports
 - `GET /api/projects/{project_id}/benchmarks`
@@ -196,4 +221,5 @@ echo "VITE_API_BASE_URL=http://localhost:8000/api" > frontend/.env
 
 - Password hashing uses `passlib` with `pbkdf2_sha256`.
 - A lightweight startup migration is included for legacy local DBs (adds `projects.description` when missing).
-- Frontend is intentionally simple and functional, focused on lifecycle execution workflow.
+- Existing projects are auto-backfilled with owner membership records.
+- Frontend now includes collaborative sections for members, Kanban tasks, project pages, and run comparison.
