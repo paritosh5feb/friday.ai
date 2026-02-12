@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -16,6 +16,11 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")
+    memberships = relationship("ProjectMember", back_populates="user", cascade="all, delete-orphan")
+    assigned_tasks = relationship("Task", foreign_keys="Task.assignee_id", back_populates="assignee")
+    reported_tasks = relationship("Task", foreign_keys="Task.reporter_id", back_populates="reporter")
+    authored_pages = relationship("ProjectPage", foreign_keys="ProjectPage.author_id", back_populates="author")
+    updated_pages = relationship("ProjectPage", foreign_keys="ProjectPage.updated_by_id", back_populates="updated_by")
 
 
 class Project(Base):
@@ -41,6 +46,24 @@ class Project(Base):
     benchmarks = relationship("Benchmark", back_populates="project", cascade="all, delete-orphan")
     result_tables = relationship("ResultTable", back_populates="project", cascade="all, delete-orphan")
     final_reports = relationship("FinalReport", back_populates="project", cascade="all, delete-orphan")
+    members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
+    tasks = relationship("Task", back_populates="project", cascade="all, delete-orphan")
+    pages = relationship("ProjectPage", back_populates="project", cascade="all, delete-orphan")
+
+
+class ProjectMember(Base):
+    __tablename__ = "project_members"
+    __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_member"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = Column(String(50), default="researcher", nullable=False)
+    scopes = Column(Text, default="", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    project = relationship("Project", back_populates="members")
+    user = relationship("User", back_populates="memberships")
 
 
 class LifecycleStage(Base):
@@ -115,6 +138,47 @@ class RunMetric(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     run = relationship("Run", back_populates="metrics")
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, default="", nullable=False)
+    status = Column(String(50), default="todo", nullable=False, index=True)
+    priority = Column(String(20), default="medium", nullable=False, index=True)
+    assignee_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    reporter_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    stage_number = Column(Integer, nullable=True)
+    story_points = Column(Integer, nullable=True)
+    due_date = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    project = relationship("Project", back_populates="tasks")
+    assignee = relationship("User", foreign_keys=[assignee_id], back_populates="assigned_tasks")
+    reporter = relationship("User", foreign_keys=[reporter_id], back_populates="reported_tasks")
+
+
+class ProjectPage(Base):
+    __tablename__ = "project_pages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, default="", nullable=False)
+    parent_page_id = Column(Integer, ForeignKey("project_pages.id", ondelete="SET NULL"), nullable=True, index=True)
+    author_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    project = relationship("Project", back_populates="pages")
+    author = relationship("User", foreign_keys=[author_id], back_populates="authored_pages")
+    updated_by = relationship("User", foreign_keys=[updated_by_id], back_populates="updated_pages")
+    parent_page = relationship("ProjectPage", remote_side=[id], backref="child_pages")
 
 
 class Benchmark(Base):

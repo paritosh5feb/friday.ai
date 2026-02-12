@@ -29,6 +29,17 @@ class UserRead(BaseModel):
     created_at: datetime
 
 
+ProjectRole = Literal["admin", "manager", "researcher", "reviewer", "viewer"]
+ProjectScope = Literal[
+    "manage_members",
+    "manage_lifecycle",
+    "manage_experiments",
+    "manage_runs",
+    "manage_tasks",
+    "manage_pages",
+]
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     description: str | None = None
@@ -58,6 +69,28 @@ class ProjectRead(BaseModel):
 class ProjectListResponse(BaseModel):
     items: list[ProjectRead]
     total: int
+
+
+class ProjectMemberCreate(BaseModel):
+    email: EmailStr
+    role: ProjectRole = "researcher"
+    scopes: list[ProjectScope] | None = None
+
+
+class ProjectMemberUpdate(BaseModel):
+    role: ProjectRole | None = None
+    scopes: list[ProjectScope] | None = None
+
+
+class ProjectMemberRead(BaseModel):
+    id: int
+    project_id: int
+    user_id: int
+    user_email: EmailStr
+    user_full_name: str
+    role: ProjectRole
+    scopes: list[ProjectScope]
+    created_at: datetime
 
 
 LifecycleStatus = Literal["pending", "in_progress", "completed", "blocked"]
@@ -264,6 +297,105 @@ class RunDetailRead(RunRead):
     metrics: list[RunMetricRead]
 
 
+TaskStatus = Literal["backlog", "todo", "in_progress", "in_review", "done"]
+TaskPriority = Literal["low", "medium", "high", "critical"]
+
+
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=255)
+    description: str = ""
+    status: TaskStatus = "todo"
+    priority: TaskPriority = "medium"
+    assignee_id: int | None = None
+    stage_number: int | None = Field(default=None, ge=1, le=8)
+    story_points: int | None = Field(default=None, ge=0)
+    due_date: datetime | None = None
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=255)
+    description: str | None = None
+    status: TaskStatus | None = None
+    priority: TaskPriority | None = None
+    assignee_id: int | None = None
+    stage_number: int | None = Field(default=None, ge=1, le=8)
+    story_points: int | None = Field(default=None, ge=0)
+    due_date: datetime | None = None
+
+
+class TaskRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    title: str
+    description: str
+    status: TaskStatus
+    priority: TaskPriority
+    assignee_id: int | None
+    assignee_name: str | None = None
+    reporter_id: int | None
+    reporter_name: str | None = None
+    stage_number: int | None
+    story_points: int | None
+    due_date: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class KanbanBoardResponse(BaseModel):
+    project_id: int
+    columns: dict[TaskStatus, list[TaskRead]]
+
+
+class ProjectPageCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=255)
+    content: str = ""
+    parent_page_id: int | None = None
+
+
+class ProjectPageUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=255)
+    content: str | None = None
+    parent_page_id: int | None = None
+
+
+class ProjectPageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    title: str
+    content: str
+    parent_page_id: int | None
+    author_id: int | None
+    author_name: str | None = None
+    updated_by_id: int | None
+    updated_by_name: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class RunComparisonItem(BaseModel):
+    run_id: int
+    experiment_id: int
+    experiment_title: str
+    status: RunStatus
+    selected_metric: float | None
+    metrics: dict[str, float]
+    params: dict[str, str]
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class RunComparisonResponse(BaseModel):
+    project_id: int
+    metric_key: str | None
+    items: list[RunComparisonItem]
+    best_run_id: int | None
+    best_metric_value: float | None
+
+
 class ProjectLifecycleSummary(BaseModel):
     project_id: int
     stage_status_counts: dict[str, int]
@@ -272,5 +404,7 @@ class ProjectLifecycleSummary(BaseModel):
     benchmarks_logged: int
     result_tables_created: int
     final_reports_created: int
+    task_status_counts: dict[str, int]
+    documentation_pages_created: int
     ready_to_scale: bool
     ready_for_final_evaluation: bool

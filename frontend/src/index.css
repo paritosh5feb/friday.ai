@@ -182,6 +182,60 @@ label {
   border-radius: 8px;
 }
 
+.list-item.highlight {
+  border-color: #22c55e;
+  background-color: #f0fdf4;
+}
+
+.kanban-grid {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.7rem;
+}
+
+.kanban-column {
+  border: 1px solid #e4e8ef;
+  border-radius: 12px;
+  padding: 0.65rem;
+  background-color: #f8fafc;
+}
+
+.kanban-card {
+  background-color: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.6rem;
+  margin-bottom: 0.55rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.chip {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.75rem;
+  color: white;
+  text-transform: uppercase;
+}
+
+.chip-low {
+  background-color: #64748b;
+}
+
+.chip-medium {
+  background-color: #2563eb;
+}
+
+.chip-high {
+  background-color: #d97706;
+}
+
+.chip-critical {
+  background-color: #dc2626;
+}
+
 .muted {
   color: #64748b;
 }

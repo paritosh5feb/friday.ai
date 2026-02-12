@@ -2,32 +2,62 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
 import { useAuth } from "../auth";
-import type { ExperimentKind, ExperimentStatus, Project, ProjectDetail } from "../types";
+import type {
+  ExperimentKind,
+  ExperimentStatus,
+  Project,
+  ProjectDetail,
+  ProjectMember,
+  ProjectPage,
+  ProjectRole,
+  RunComparison,
+  TaskItem,
+  TaskPriority,
+  TaskStatus,
+} from "../types";
 
 const lifecycleStatuses = ["pending", "in_progress", "completed", "blocked"] as const;
-const experimentKinds: ExperimentKind[] = [
-  "baseline",
-  "reproduction",
-  "partial",
-  "benchmark",
-  "scaled",
-  "final",
-];
+const experimentKinds: ExperimentKind[] = ["baseline", "reproduction", "partial", "benchmark", "scaled", "final"];
 const experimentStatuses: ExperimentStatus[] = ["planned", "running", "completed", "failed"];
+const roles: ProjectRole[] = ["admin", "manager", "researcher", "reviewer", "viewer"];
+const taskStatuses: TaskStatus[] = ["backlog", "todo", "in_progress", "in_review", "done"];
+const taskPriorities: TaskPriority[] = ["low", "medium", "high", "critical"];
 
 export function DashboardPage() {
   const { token, user, logout } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectDetail | null>(null);
+  const [members, setMembers] = useState<ProjectMember[]>([]);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [pages, setPages] = useState<ProjectPage[]>([]);
+  const [runComparison, setRunComparison] = useState<RunComparison | null>(null);
+  const [runMetricKey, setRunMetricKey] = useState("accuracy");
   const [stageNotes, setStageNotes] = useState<Record<number, string>>({});
   const [stageStatuses, setStageStatuses] = useState<Record<number, (typeof lifecycleStatuses)[number]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [projectName, setProjectName] = useState("");
+  const [projectDescription, setProjectDescription] = useState("");
   const [projectObjective, setProjectObjective] = useState("");
   const [projectHypothesis, setProjectHypothesis] = useState("");
+
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<ProjectRole>("researcher");
+
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDescription, setTaskDescription] = useState("");
+  const [taskStatus, setTaskStatus] = useState<TaskStatus>("todo");
+  const [taskPriority, setTaskPriority] = useState<TaskPriority>("medium");
+  const [taskAssigneeId, setTaskAssigneeId] = useState<string>("");
+  const [taskStageNumber, setTaskStageNumber] = useState<string>("");
+  const [taskStoryPoints, setTaskStoryPoints] = useState<string>("");
+  const [taskDueDate, setTaskDueDate] = useState("");
+
+  const [pageTitle, setPageTitle] = useState("");
+  const [pageContent, setPageContent] = useState("");
+  const [pageParentId, setPageParentId] = useState<string>("");
 
   const [experimentKind, setExperimentKind] = useState<ExperimentKind>("baseline");
   const [experimentTitle, setExperimentTitle] = useState("");
@@ -56,6 +86,18 @@ export function DashboardPage() {
     [projects, selectedProjectId],
   );
 
+  const tasksByStatus = useMemo(() => {
+    const grouped: Record<TaskStatus, TaskItem[]> = {
+      backlog: [],
+      todo: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+    };
+    tasks.forEach((task) => grouped[task.status].push(task));
+    return grouped;
+  }, [tasks]);
+
   useEffect(() => {
     if (!token) return;
     void loadProjects();
@@ -72,7 +114,7 @@ export function DashboardPage() {
       if (list.length > 0) {
         const nextProjectId = selectedProjectId && list.some((p) => p.id === selectedProjectId) ? selectedProjectId : list[0].id;
         setSelectedProjectId(nextProjectId);
-        await loadProject(nextProjectId);
+        await loadProjectWorkspace(nextProjectId);
       } else {
         setSelectedProjectId(null);
         setSelectedProject(null);
@@ -84,13 +126,24 @@ export function DashboardPage() {
     }
   }
 
-  async function loadProject(projectId: number) {
+  async function loadProjectWorkspace(projectId: number) {
     if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const detail = await api.getProject(token, projectId);
+      const [detail, team, projectTasks, docs, comparison] = await Promise.all([
+        api.getProject(token, projectId),
+        api.listMembers(token, projectId),
+        api.listTasks(token, projectId),
+        api.listPages(token, projectId),
+        api.getRunComparison(token, projectId, runMetricKey || undefined),
+      ]);
       setSelectedProject(detail);
+      setMembers(team);
+      setTasks(projectTasks);
+      setPages(docs);
+      setRunComparison(comparison);
+
       const nextNotes: Record<number, string> = {};
       const nextStatuses: Record<number, (typeof lifecycleStatuses)[number]> = {};
       detail.lifecycle_stages.forEach((stage) => {
@@ -114,15 +167,17 @@ export function DashboardPage() {
     try {
       const project = await api.createProject(token, {
         name: projectName,
+        description: projectDescription,
         objective: projectObjective,
         hypothesis: projectHypothesis,
       });
       setProjectName("");
+      setProjectDescription("");
       setProjectObjective("");
       setProjectHypothesis("");
       setProjects((prev) => [project, ...prev]);
       setSelectedProjectId(project.id);
-      await loadProject(project.id);
+      await loadProjectWorkspace(project.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create project");
     } finally {
@@ -139,9 +194,109 @@ export function DashboardPage() {
         status: stageStatuses[stageId],
         notes: stageNotes[stageId],
       });
-      await loadProject(selectedProject.id);
+      await loadProjectWorkspace(selectedProject.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update stage");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleInviteMember(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !selectedProject) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.addMember(token, selectedProject.id, { email: inviteEmail, role: inviteRole });
+      setInviteEmail("");
+      setInviteRole("researcher");
+      await loadProjectWorkspace(selectedProject.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to add member");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateTask(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !selectedProject) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.createTask(token, selectedProject.id, {
+        title: taskTitle,
+        description: taskDescription,
+        status: taskStatus,
+        priority: taskPriority,
+        assignee_id: taskAssigneeId ? Number(taskAssigneeId) : null,
+        stage_number: taskStageNumber ? Number(taskStageNumber) : null,
+        story_points: taskStoryPoints ? Number(taskStoryPoints) : null,
+        due_date: taskDueDate ? new Date(taskDueDate).toISOString() : null,
+      });
+      setTaskTitle("");
+      setTaskDescription("");
+      setTaskStatus("todo");
+      setTaskPriority("medium");
+      setTaskAssigneeId("");
+      setTaskStageNumber("");
+      setTaskStoryPoints("");
+      setTaskDueDate("");
+      await loadProjectWorkspace(selectedProject.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create task");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function moveTask(task: TaskItem, newStatus: TaskStatus) {
+    if (!token || !selectedProject) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.updateTask(token, task.id, { status: newStatus });
+      await loadProjectWorkspace(selectedProject.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update task");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreatePage(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !selectedProject) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.createPage(token, selectedProject.id, {
+        title: pageTitle,
+        content: pageContent,
+        parent_page_id: pageParentId ? Number(pageParentId) : null,
+      });
+      setPageTitle("");
+      setPageContent("");
+      setPageParentId("");
+      await loadProjectWorkspace(selectedProject.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create page");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshRunComparison(event: FormEvent) {
+    event.preventDefault();
+    if (!token || !selectedProject) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const comparison = await api.getRunComparison(token, selectedProject.id, runMetricKey || undefined);
+      setRunComparison(comparison);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load run comparison");
     } finally {
       setLoading(false);
     }
@@ -170,7 +325,7 @@ export function DashboardPage() {
       setExperimentMetricName("");
       setExperimentMetricValue("");
       setExperimentStatus("planned");
-      await loadProject(selectedProject.id);
+      await loadProjectWorkspace(selectedProject.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create experiment");
     } finally {
@@ -184,7 +339,7 @@ export function DashboardPage() {
     setError(null);
     try {
       await api.deleteExperiment(token, experimentId);
-      await loadProject(selectedProject.id);
+      await loadProjectWorkspace(selectedProject.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete experiment");
     } finally {
@@ -210,7 +365,7 @@ export function DashboardPage() {
       setBenchmarkMetricName("");
       setBenchmarkMetricValue("");
       setBenchmarkNotes("");
-      await loadProject(selectedProject.id);
+      await loadProjectWorkspace(selectedProject.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create benchmark");
     } finally {
@@ -230,7 +385,7 @@ export function DashboardPage() {
       });
       setTableTitle("");
       setTableMarkdown("");
-      await loadProject(selectedProject.id);
+      await loadProjectWorkspace(selectedProject.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create result table");
     } finally {
@@ -252,7 +407,7 @@ export function DashboardPage() {
       setReportDiscussion("");
       setReportEvaluation("");
       setReportLatex("");
-      await loadProject(selectedProject.id);
+      await loadProjectWorkspace(selectedProject.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create report");
     } finally {
@@ -280,7 +435,7 @@ export function DashboardPage() {
               className={`project-list-item ${selectedProjectId === project.id ? "active" : ""}`}
               onClick={() => {
                 setSelectedProjectId(project.id);
-                void loadProject(project.id);
+                void loadProjectWorkspace(project.id);
               }}
             >
               <span>{project.name}</span>
@@ -296,6 +451,10 @@ export function DashboardPage() {
           <label>
             Name
             <input value={projectName} onChange={(e) => setProjectName(e.target.value)} minLength={2} required />
+          </label>
+          <label>
+            Description
+            <textarea value={projectDescription} onChange={(e) => setProjectDescription(e.target.value)} />
           </label>
           <label>
             Objective
@@ -327,6 +486,9 @@ export function DashboardPage() {
           {selectedProject && (
             <>
               <p>
+                <strong>Description:</strong> {selectedProject.description || "No description yet."}
+              </p>
+              <p>
                 <strong>Objective:</strong> {selectedProject.objective}
               </p>
               <p>
@@ -340,6 +502,42 @@ export function DashboardPage() {
 
         {selectedProject ? (
           <>
+            <section className="card">
+              <h2>Team & Access Control (Jira-style)</h2>
+              <form className="grid-form" onSubmit={handleInviteMember}>
+                <label>
+                  User Email
+                  <input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} required />
+                </label>
+                <label>
+                  Role
+                  <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as ProjectRole)}>
+                    {roles.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="submit" disabled={loading}>
+                  Add Member
+                </button>
+              </form>
+              <div className="list">
+                {members.map((member) => (
+                  <article key={member.id} className="list-item">
+                    <div>
+                      <strong>{member.user_full_name}</strong> ({member.user_email})
+                      <p className="muted small">
+                        Role: {member.role} | Scopes: {member.scopes.join(", ") || "view only"}
+                      </p>
+                    </div>
+                  </article>
+                ))}
+                {members.length === 0 && <p className="muted small">No members yet.</p>}
+              </div>
+            </section>
+
             <section className="card">
               <h2>Lifecycle Stages</h2>
               <div className="stages-grid">
@@ -388,6 +586,101 @@ export function DashboardPage() {
             </section>
 
             <section className="card">
+              <h2>Kanban Tasks (Jira-style Execution)</h2>
+              <form className="grid-form" onSubmit={handleCreateTask}>
+                <label>
+                  Task Title
+                  <input value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required />
+                </label>
+                <label>
+                  Description
+                  <textarea value={taskDescription} onChange={(e) => setTaskDescription(e.target.value)} />
+                </label>
+                <label>
+                  Status
+                  <select value={taskStatus} onChange={(e) => setTaskStatus(e.target.value as TaskStatus)}>
+                    {taskStatuses.map((statusValue) => (
+                      <option key={statusValue} value={statusValue}>
+                        {statusValue}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Priority
+                  <select value={taskPriority} onChange={(e) => setTaskPriority(e.target.value as TaskPriority)}>
+                    {taskPriorities.map((priority) => (
+                      <option key={priority} value={priority}>
+                        {priority}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Assignee
+                  <select value={taskAssigneeId} onChange={(e) => setTaskAssigneeId(e.target.value)}>
+                    <option value="">Unassigned</option>
+                    {members.map((member) => (
+                      <option key={member.user_id} value={member.user_id}>
+                        {member.user_full_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Lifecycle Stage
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={taskStageNumber}
+                    onChange={(e) => setTaskStageNumber(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Story Points
+                  <input type="number" min={0} value={taskStoryPoints} onChange={(e) => setTaskStoryPoints(e.target.value)} />
+                </label>
+                <label>
+                  Due Date
+                  <input type="datetime-local" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} />
+                </label>
+                <button type="submit" disabled={loading}>
+                  Create Task
+                </button>
+              </form>
+
+              <div className="kanban-grid">
+                {taskStatuses.map((statusValue) => (
+                  <article key={statusValue} className="kanban-column">
+                    <h3>{statusValue}</h3>
+                    {tasksByStatus[statusValue].map((task) => (
+                      <div key={task.id} className="kanban-card">
+                        <strong>{task.title}</strong>
+                        <p className="muted small">{task.description || "No description"}</p>
+                        <p className="small">
+                          Priority: <span className={`chip chip-${task.priority}`}>{task.priority}</span>
+                        </p>
+                        <p className="small">Assignee: {task.assignee_name ?? "Unassigned"}</p>
+                        <label>
+                          Move
+                          <select value={task.status} onChange={(e) => void moveTask(task, e.target.value as TaskStatus)}>
+                            {taskStatuses.map((nextStatus) => (
+                              <option key={nextStatus} value={nextStatus}>
+                                {nextStatus}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    ))}
+                    {tasksByStatus[statusValue].length === 0 && <p className="muted small">No tasks</p>}
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="card">
               <h2>Experiments</h2>
               <form className="grid-form" onSubmit={handleCreateExperiment}>
                 <label>
@@ -406,10 +699,7 @@ export function DashboardPage() {
                 </label>
                 <label>
                   Status
-                  <select
-                    value={experimentStatus}
-                    onChange={(e) => setExperimentStatus(e.target.value as ExperimentStatus)}
-                  >
+                  <select value={experimentStatus} onChange={(e) => setExperimentStatus(e.target.value as ExperimentStatus)}>
                     {experimentStatuses.map((statusValue) => (
                       <option key={statusValue} value={statusValue}>
                         {statusValue}
@@ -446,7 +736,6 @@ export function DashboardPage() {
                   Add Experiment
                 </button>
               </form>
-
               <div className="list">
                 {selectedProject.experiments.map((experiment) => (
                   <article key={experiment.id} className="list-item">
@@ -470,6 +759,36 @@ export function DashboardPage() {
                   </article>
                 ))}
                 {selectedProject.experiments.length === 0 && <p className="muted small">No experiments yet.</p>}
+              </div>
+            </section>
+
+            <section className="card">
+              <h2>Runs Comparison (W&B-style)</h2>
+              <form className="grid-form" onSubmit={refreshRunComparison}>
+                <label>
+                  Focus Metric Key
+                  <input value={runMetricKey} onChange={(e) => setRunMetricKey(e.target.value)} placeholder="accuracy" />
+                </label>
+                <button type="submit" disabled={loading}>
+                  Refresh Comparison
+                </button>
+              </form>
+              <div className="list">
+                {runComparison?.items.map((item) => (
+                  <article key={item.run_id} className={`list-item ${runComparison.best_run_id === item.run_id ? "highlight" : ""}`}>
+                    <div>
+                      <strong>
+                        Run #{item.run_id} - {item.experiment_title}
+                      </strong>
+                      <p className="small">
+                        Status: {item.status} | {runComparison.metric_key ?? "metric"}: {item.selected_metric ?? "N/A"}
+                      </p>
+                      <p className="small">Params: {Object.keys(item.params).length > 0 ? JSON.stringify(item.params) : "none"}</p>
+                      <p className="small">Metrics: {Object.keys(item.metrics).length > 0 ? JSON.stringify(item.metrics) : "none"}</p>
+                    </div>
+                  </article>
+                ))}
+                {(runComparison?.items.length ?? 0) === 0 && <p className="muted small">No runs to compare yet.</p>}
               </div>
             </section>
 
@@ -513,7 +832,6 @@ export function DashboardPage() {
                   Add Benchmark
                 </button>
               </form>
-
               <div className="list">
                 {selectedProject.benchmarks.map((benchmark) => (
                   <article key={benchmark.id} className="list-item">
@@ -556,6 +874,49 @@ export function DashboardPage() {
             </section>
 
             <section className="card">
+              <h2>Knowledge Pages (Confluence-style)</h2>
+              <form className="grid-form" onSubmit={handleCreatePage}>
+                <label>
+                  Title
+                  <input value={pageTitle} onChange={(e) => setPageTitle(e.target.value)} required />
+                </label>
+                <label>
+                  Parent Page
+                  <select value={pageParentId} onChange={(e) => setPageParentId(e.target.value)}>
+                    <option value="">Top-level page</option>
+                    {pages.map((page) => (
+                      <option key={page.id} value={page.id}>
+                        {page.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Content
+                  <textarea value={pageContent} onChange={(e) => setPageContent(e.target.value)} />
+                </label>
+                <button type="submit" disabled={loading}>
+                  Create Page
+                </button>
+              </form>
+              <div className="list">
+                {pages.map((page) => (
+                  <article key={page.id} className="list-item">
+                    <div>
+                      <strong>{page.title}</strong>
+                      {page.parent_page_id && <p className="small muted">Parent: #{page.parent_page_id}</p>}
+                      <p>{page.content || "No content yet."}</p>
+                      <p className="small muted">
+                        Updated by {page.updated_by_name ?? "Unknown"} at {new Date(page.updated_at).toLocaleString()}
+                      </p>
+                    </div>
+                  </article>
+                ))}
+                {pages.length === 0 && <p className="muted small">No project pages yet.</p>}
+              </div>
+            </section>
+
+            <section className="card">
               <h2>Final Evaluation & LaTeX Report (Stage 8)</h2>
               <form className="stacked-form" onSubmit={handleCreateReport}>
                 <label>
@@ -574,7 +935,6 @@ export function DashboardPage() {
                   Save Report
                 </button>
               </form>
-
               <div className="list">
                 {selectedProject.final_reports.map((report) => (
                   <article key={report.id} className="list-item">

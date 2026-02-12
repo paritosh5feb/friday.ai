@@ -3,10 +3,15 @@ import type {
   Benchmark,
   Experiment,
   FinalReport,
+  KanbanBoard,
   LifecycleStage,
+  ProjectMember,
+  ProjectPage,
   Project,
   ProjectDetail,
   ResultTable,
+  RunComparison,
+  TaskItem,
   User,
 } from "./types";
 
@@ -58,7 +63,7 @@ export const api = {
 
   listProjects: (token: string) => request<Project[]>("/projects", { method: "GET" }, token),
 
-  createProject: (token: string, payload: { name: string; objective: string; hypothesis: string }) =>
+  createProject: (token: string, payload: { name: string; description?: string; objective: string; hypothesis: string }) =>
     request<ProjectDetail>("/projects", { method: "POST", body: payload }, token),
 
   getProject: (token: string, projectId: number) => request<ProjectDetail>(`/projects/${projectId}`, { method: "GET" }, token),
@@ -120,4 +125,73 @@ export const api = {
       latex_snippet: string;
     },
   ) => request<FinalReport>(`/projects/${projectId}/reports`, { method: "POST", body: payload }, token),
+
+  listMembers: (token: string, projectId: number) =>
+    request<ProjectMember[]>(`/projects/${projectId}/members`, { method: "GET" }, token),
+
+  addMember: (
+    token: string,
+    projectId: number,
+    payload: {
+      email: string;
+      role: ProjectMember["role"];
+      scopes?: ProjectMember["scopes"];
+    },
+  ) => request<ProjectMember>(`/projects/${projectId}/members`, { method: "POST", body: payload }, token),
+
+  listTasks: (token: string, projectId: number) =>
+    request<TaskItem[]>(`/projects/${projectId}/tasks`, { method: "GET" }, token),
+
+  createTask: (
+    token: string,
+    projectId: number,
+    payload: {
+      title: string;
+      description: string;
+      status: TaskItem["status"];
+      priority: TaskItem["priority"];
+      assignee_id: number | null;
+      stage_number: number | null;
+      story_points: number | null;
+      due_date: string | null;
+    },
+  ) => request<TaskItem>(`/projects/${projectId}/tasks`, { method: "POST", body: payload }, token),
+
+  updateTask: (
+    token: string,
+    taskId: number,
+    payload: {
+      title?: string;
+      description?: string;
+      status?: TaskItem["status"];
+      priority?: TaskItem["priority"];
+      assignee_id?: number | null;
+      stage_number?: number | null;
+      story_points?: number | null;
+      due_date?: string | null;
+    },
+  ) => request<TaskItem>(`/tasks/${taskId}`, { method: "PATCH", body: payload }, token),
+
+  listPages: (token: string, projectId: number) =>
+    request<ProjectPage[]>(`/projects/${projectId}/pages`, { method: "GET" }, token),
+
+  createPage: (
+    token: string,
+    projectId: number,
+    payload: {
+      title: string;
+      content: string;
+      parent_page_id: number | null;
+    },
+  ) => request<ProjectPage>(`/projects/${projectId}/pages`, { method: "POST", body: payload }, token),
+
+  getKanban: (token: string, projectId: number) =>
+    request<KanbanBoard>(`/projects/${projectId}/kanban`, { method: "GET" }, token),
+
+  getRunComparison: (token: string, projectId: number, metricKey?: string) =>
+    request<RunComparison>(
+      `/projects/${projectId}/run-comparison${metricKey ? `?metric_key=${encodeURIComponent(metricKey)}` : ""}`,
+      { method: "GET" },
+      token,
+    ),
 };
